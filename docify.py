@@ -13,6 +13,7 @@ from typing import Sequence, cast
 import libcst as cst
 import libcst.matchers as m
 import libcst.metadata as meta
+from tqdm import tqdm
 
 IGNORE_MODULES = ("antigravity", "this")
 
@@ -21,19 +22,19 @@ VERBOSE = False
 
 def print_v(s):
     if VERBOSE:
-        print(f"VERBOSE: {s}")
+        tqdm.write(f"VERBOSE: {s}")
 
 
 def print_i(s):
-    print(f"INFO: {s}")
+    tqdm.write(f"INFO: {s}")
 
 
 def print_w(s):
-    print(f"WARNING: {s}")
+    tqdm.write(f"WARNING: {s}")
 
 
 def print_e(s):
-    print(f"ERROR: {s}")
+    tqdm.write(f"ERROR: {s}")
 
 
 def get_obj(mod: ModuleType, qualname: str) -> tuple[object, object] | None:
@@ -458,10 +459,12 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    for base_dir, _, files in os.walk(args.input_dir):
-        for input_filename in files:
-            input_path = os.path.join(base_dir, input_filename)
-            file_relpath = os.path.relpath(input_path, args.input_dir)
+    queue = []
+
+    for base_dir, _, filenames in os.walk(args.input_dir):
+        for filename in filenames:
+            file_path = os.path.join(base_dir, filename)
+            file_relpath = os.path.relpath(file_path, args.input_dir)
 
             import_path, file_ext = os.path.splitext(file_relpath)
             if file_ext != ".pyi":
@@ -473,36 +476,41 @@ def main():
             if import_path in IGNORE_MODULES:
                 continue
 
-            try:
-                mod = importlib.import_module(import_path)
-            except ModuleNotFoundError:
-                print_w(f"could not import {import_path}, module not found")
-                continue
-            except ImportError as e:
-                print_e(f"could not import {import_path}, {e}")
-                continue
+            queue.append((import_path, file_relpath))
 
-            with open(input_path, "r") as f:
-                stub_source = f.read()
+    for import_path, file_relpath in tqdm(queue, dynamic_ncols=True):
+        file_path = os.path.join(args.input_dir, file_relpath)
 
-            try:
-                stub_cst = cst.parse_module(stub_source)
-            except Exception as e:
-                print_e(f"could not parse {file_relpath}: {e}")
-                continue
+        try:
+            mod = importlib.import_module(import_path)
+        except ModuleNotFoundError:
+            print_w(f"could not import {import_path}, module not found")
+            continue
+        except ImportError as e:
+            print_e(f"could not import {import_path}, {e}")
+            continue
 
-            print_i(f"processing {file_relpath}")
+        with open(file_path, "r") as f:
+            stub_source = f.read()
 
-            wrapper = cst.MetadataWrapper(stub_cst)
-            visitor = Transformer(import_path, mod)
+        try:
+            stub_cst = cst.parse_module(stub_source)
+        except Exception as e:
+            print_e(f"could not parse {file_relpath}: {e}")
+            continue
 
-            new_stub_cst = wrapper.visit(visitor)
+        print_i(f"processing {file_relpath}")
 
-            output_path = os.path.join(args.output_dir, file_relpath)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        wrapper = cst.MetadataWrapper(stub_cst)
+        visitor = Transformer(import_path, mod)
 
-            with open(output_path, "w") as f:
-                f.write(new_stub_cst.code)
+        new_stub_cst = wrapper.visit(visitor)
+
+        output_path = os.path.join(args.output_dir, file_relpath)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        with open(output_path, "w") as f:
+            f.write(new_stub_cst.code)
 
 
 if __name__ == "__main__":
