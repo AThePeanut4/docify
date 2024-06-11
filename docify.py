@@ -3,12 +3,15 @@
 import importlib
 import inspect
 import os
+import sys
 import textwrap
 import warnings
 from argparse import ArgumentParser
 from types import ModuleType
+from typing import Sequence, cast
 
 import libcst as cst
+import libcst.matchers as m
 import libcst.metadata as meta
 
 IGNORE_MODULES = ("antigravity", "this")
@@ -147,6 +150,122 @@ def docquote_str(doc: str, indent: str = ""):
     return ('r"""' if raw else '"""') + doc + '"""'
 
 
+def get_version(elements: Sequence[cst.BaseElement]):
+    return tuple(int(cast(cst.Integer, element.value).value) for element in elements)
+
+
+class ConditionProvider(meta.BatchableMetadataProvider[bool]):
+    def leave_Comparison(self, original_node):
+        if m.matches(
+            original_node,
+            m.Comparison(
+                left=m.Attribute(
+                    m.Name("sys"),
+                    m.Name("version_info"),
+                ),
+                comparisons=[
+                    m.ComparisonTarget(
+                        m.GreaterThanEqual() | m.LessThan(),
+                        comparator=m.Tuple(
+                            [
+                                m.Element(m.Integer()),
+                                m.AtMostN(m.Element(m.Integer()), n=2),
+                            ]
+                        ),
+                    )
+                ],
+            ),
+        ):
+            matches = m.matches(
+                original_node,
+                m.Comparison(
+                    comparisons=[
+                        m.ComparisonTarget(
+                            m.GreaterThanEqual(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info >= get_version(els)
+                                ),
+                            ),
+                        )
+                        | m.ComparisonTarget(
+                            m.LessThan(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info < get_version(els)
+                                ),
+                            ),
+                        )
+                    ]
+                ),
+            )
+            self.set_metadata(original_node, matches)
+
+        if m.matches(
+            original_node,
+            m.Comparison(
+                left=m.Attribute(
+                    m.Name("sys"),
+                    m.Name("platform"),
+                ),
+                comparisons=[
+                    m.ComparisonTarget(
+                        m.Equal() | m.NotEqual(),
+                        comparator=m.SimpleString(),
+                    )
+                ],
+            ),
+        ):
+            matches = m.matches(
+                original_node,
+                m.Comparison(
+                    comparisons=[
+                        m.ComparisonTarget(
+                            m.Equal(),
+                            comparator=m.MatchIfTrue(lambda val: sys.platform == val),
+                        )
+                        | m.ComparisonTarget(
+                            m.NotEqual(),
+                            comparator=m.MatchIfTrue(lambda val: sys.platform != val),
+                        )
+                    ]
+                ),
+            )
+            self.set_metadata(original_node, matches)
+
+
+class IfProvider(meta.BatchableMetadataProvider[bool]):
+    METADATA_DEPENDENCIES = [ConditionProvider]
+
+    def visit_If(self, node):
+        cond = self.get_metadata(type(self), node, None)
+        if cond is not None:
+            return
+
+        cond = self.get_metadata(ConditionProvider, node.test, None)
+        if cond is None:
+            return
+
+        self.set_metadata(node, cond)
+        if cond:
+            while True:
+                node = node.orelse
+                if node is None:
+                    break
+                elif isinstance(node, cst.If):
+                    self.set_metadata(node, False)
+                elif isinstance(node, cst.Else):
+                    self.set_metadata(node, False)
+                    break
+
+    def visit_Else(self, node):
+        cond = self.get_metadata(type(self), node, None)
+        if cond is not None:
+            return
+
+        self.set_metadata(node, True)
+
+
 # TODO: somehow add module attribute docstrings? e.g. typing.Union
 # TODO: infer for renamed classes, e.g. types._Cell is CellType at runtime, and CellType = _Cell exists in stub
 
@@ -157,6 +276,17 @@ class Transformer(cst.CSTTransformer):
         self.mod = mod
         self.scope_map = wrapper.resolve(meta.ScopeProvider)
         self.parent_map = wrapper.resolve(meta.ParentNodeProvider)
+        self.cond_map = wrapper.resolve(ConditionProvider)
+        self.if_map = wrapper.resolve(IfProvider)
+
+    def check_ifs(self, node: cst.CSTNode):
+        while True:
+            if isinstance(node, cst.Module):
+                return True
+            elif isinstance(node, (cst.If, cst.Else)):
+                if not self.if_map.get(node, True):
+                    return False
+            node = self.parent_map[node]
 
     def leave_ClassFunctionDef(
         self,
@@ -165,6 +295,9 @@ class Transformer(cst.CSTTransformer):
     ):
         scope = self.scope_map[original_node]
         if scope is None:
+            return updated_node
+
+        if not self.check_ifs(original_node):
             return updated_node
 
         name = original_node.name.value
