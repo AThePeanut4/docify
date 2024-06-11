@@ -233,6 +233,28 @@ class ConditionProvider(meta.BatchableMetadataProvider[bool]):
             )
             self.set_metadata(original_node, matches)
 
+    def leave_UnaryOperation(self, original_node):
+        val = self.get_metadata(type(self), original_node.expression, None)
+        if val is None:
+            return
+
+        if isinstance(original_node.operator, cst.Not):
+            self.set_metadata(original_node, not val)
+
+    def leave_BooleanOperation(self, original_node):
+        left = self.get_metadata(type(self), original_node.left, None)
+        if left is None:
+            return
+
+        right = self.get_metadata(type(self), original_node.right, None)
+        if right is None:
+            return
+
+        if isinstance(original_node.operator, cst.And):
+            self.set_metadata(original_node, left and right)
+        elif isinstance(original_node.operator, cst.Or):
+            self.set_metadata(original_node, left or right)
+
 
 class IfProvider(meta.BatchableMetadataProvider[bool]):
     METADATA_DEPENDENCIES = [ConditionProvider]
@@ -244,6 +266,7 @@ class IfProvider(meta.BatchableMetadataProvider[bool]):
 
         cond = self.get_metadata(ConditionProvider, node.test, None)
         if cond is None:
+            print_w(f"encountered unsupported condition:\n{node.test}")
             return
 
         self.set_metadata(node, cond)
