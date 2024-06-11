@@ -3,10 +3,12 @@
 import importlib
 import inspect
 import os
+import shutil
 import sys
 import textwrap
 import warnings
 from argparse import ArgumentParser
+from tempfile import NamedTemporaryFile
 from types import ModuleType
 from typing import Sequence, cast
 
@@ -326,6 +328,29 @@ class Transformer(cst.CSTTransformer):
         name = original_node.name.value
         qualname = get_qualname(scope, name)
 
+        if m.matches(
+            updated_node.body,
+            m.SimpleStatementSuite(
+                [
+                    m.Expr(m.SimpleString()),
+                    m.ZeroOrMore(),
+                ]
+            )
+            | m.IndentedBlock(
+                [
+                    m.SimpleStatementLine(
+                        [
+                            m.Expr(m.SimpleString()),
+                            m.ZeroOrMore(),
+                        ]
+                    ),
+                    m.ZeroOrMore(),
+                ]
+            ),
+        ):
+            print_v(f"docstring for {qualname} already exists, skipping")
+            return updated_node
+
         r = get_obj(self.mod, qualname)
         if r is None:
             print_v(f"cannot find {qualname}")
@@ -391,6 +416,23 @@ class Transformer(cst.CSTTransformer):
         self.module = node
 
     def leave_Module(self, original_node, updated_node):
+        if m.matches(
+            updated_node,
+            m.Module(
+                [
+                    m.SimpleStatementLine(
+                        [
+                            m.Expr(m.SimpleString()),
+                            m.ZeroOrMore(),
+                        ]
+                    ),
+                    m.ZeroOrMore(),
+                ]
+            ),
+        ):
+            print_v(f"docstring for {self.import_path} already exists, skipping")
+            return updated_node
+
         doc = getattr(self.mod, "__doc__", None)
         if not doc:
             print_v(f"could not find __doc__ for {self.import_path}")
@@ -443,8 +485,16 @@ def main():
         metavar="INPUT_DIR",
         help="directory to read stubs from",
     )
-    arg_parser.add_argument(
-        "output_dir",
+    output_group = arg_parser.add_mutually_exclusive_group(required=True)
+    output_group.add_argument(
+        "-i",
+        "--inplace",
+        action="store_true",
+        help="modify stubs in-place",
+    )
+    output_group.add_argument(
+        "-o",
+        "--output",
         metavar="OUTPUT_DIR",
         help="directory to write modified stubs to",
     )
@@ -454,17 +504,17 @@ def main():
     global VERBOSE
     VERBOSE = args.verbose
 
+    input_dir: str = args.input_dir
+
     # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
     warnings.simplefilter("ignore", DeprecationWarning)
 
-    os.makedirs(args.output_dir, exist_ok=True)
-
     queue = []
 
-    for base_dir, _, filenames in os.walk(args.input_dir):
+    for base_dir, _, filenames in os.walk(input_dir):
         for filename in filenames:
             file_path = os.path.join(base_dir, filename)
-            file_relpath = os.path.relpath(file_path, args.input_dir)
+            file_relpath = os.path.relpath(file_path, input_dir)
 
             import_path, file_ext = os.path.splitext(file_relpath)
             if file_ext != ".pyi":
@@ -479,7 +529,7 @@ def main():
             queue.append((import_path, file_relpath))
 
     for import_path, file_relpath in tqdm(queue, dynamic_ncols=True):
-        file_path = os.path.join(args.input_dir, file_relpath)
+        file_path = os.path.join(input_dir, file_relpath)
 
         try:
             mod = importlib.import_module(import_path)
@@ -506,11 +556,28 @@ def main():
 
         new_stub_cst = wrapper.visit(visitor)
 
-        output_path = os.path.join(args.output_dir, file_relpath)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        if args.inplace:
+            f = NamedTemporaryFile(
+                dir=input_dir,
+                prefix=file_relpath + ".",
+                mode="w",
+                delete=False,
+            )
+            try:
+                with f:
+                    f.write(new_stub_cst.code)
+            except:
+                os.remove(f.name)
+                raise
 
-        with open(output_path, "w") as f:
-            f.write(new_stub_cst.code)
+            shutil.copymode(file_path, f.name)
+            os.replace(f.name, file_path)
+        else:
+            output_path = os.path.join(args.output_dir, file_relpath)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            with open(output_path, "w") as f:
+                f.write(new_stub_cst.code)
 
 
 if __name__ == "__main__":
