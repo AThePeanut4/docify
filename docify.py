@@ -271,29 +271,28 @@ class IfProvider(meta.BatchableMetadataProvider[bool]):
 
 
 class Transformer(cst.CSTTransformer):
-    def __init__(self, import_path: str, mod: ModuleType, wrapper: cst.MetadataWrapper):
+    METADATA_DEPENDENCIES = [meta.ScopeProvider, meta.ParentNodeProvider, IfProvider]
+
+    def __init__(self, import_path: str, mod: ModuleType):
+        super().__init__()
         self.import_path = import_path
         self.mod = mod
-        self.scope_map = wrapper.resolve(meta.ScopeProvider)
-        self.parent_map = wrapper.resolve(meta.ParentNodeProvider)
-        self.cond_map = wrapper.resolve(ConditionProvider)
-        self.if_map = wrapper.resolve(IfProvider)
 
-    def check_ifs(self, node: cst.CSTNode):
-        while True:
-            if isinstance(node, cst.Module):
-                return True
-            elif isinstance(node, (cst.If, cst.Else)):
-                if not self.if_map.get(node, True):
+    def check_ifs(self, node: cst.CSTNode | None):
+        while node is not None:
+            if isinstance(node, (cst.If, cst.Else)):
+                if not self.get_metadata(IfProvider, node, True):
                     return False
-            node = self.parent_map[node]
+            node = self.get_metadata(meta.ParentNodeProvider, node, None)
+
+        return True
 
     def leave_ClassFunctionDef(
         self,
         original_node: cst.ClassDef | cst.FunctionDef,
         updated_node: cst.ClassDef | cst.FunctionDef,
     ):
-        scope = self.scope_map[original_node]
+        scope = self.get_metadata(meta.ScopeProvider, original_node, None)
         if scope is None:
             return updated_node
 
@@ -340,7 +339,7 @@ class Transformer(cst.CSTTransformer):
                         block_indent = self.module.default_indent
                     indent += block_indent
 
-                n = self.parent_map.get(n, None)
+                n = self.get_metadata(meta.ParentNodeProvider, n, None)
 
         doc = docquote_str(doc, indent)
         print_v(f"__doc__ for {qualname}:\n{doc}")
@@ -472,9 +471,9 @@ def main():
             print_i(f"processing {file_relpath}")
 
             wrapper = cst.MetadataWrapper(stub_cst)
-            visitor = Transformer(import_path, mod, wrapper)
+            visitor = Transformer(import_path, mod)
 
-            new_stub_cst = wrapper.module.visit(visitor)
+            new_stub_cst = wrapper.visit(visitor)
 
             output_path = os.path.join(args.output_dir, file_relpath)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
