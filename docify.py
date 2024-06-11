@@ -19,16 +19,22 @@ from tqdm import tqdm
 
 IGNORE_MODULES = ("antigravity", "this")
 
-VERBOSE = False
+VERBOSITY = 1
+
+
+def print_t(s):
+    if VERBOSITY > 2:
+        tqdm.write(f"TRACE: {s}")
 
 
 def print_v(s):
-    if VERBOSE:
+    if VERBOSITY > 1:
         tqdm.write(f"VERBOSE: {s}")
 
 
 def print_i(s):
-    tqdm.write(f"INFO: {s}")
+    if VERBOSITY > 0:
+        tqdm.write(f"INFO: {s}")
 
 
 def print_w(s):
@@ -73,7 +79,7 @@ def get_doc_class(obj: object, qualname: str):
     # e.g. types.BuiltinFunctionType, aka builtin_function_or_method,
     # or typing._SpecialForm
     if inspect.isdatadescriptor(doc):
-        print_i(f"ignoring __doc__ descriptor for {qualname}")
+        print_v(f"ignoring __doc__ descriptor for {qualname}")
         return None
 
     return doc
@@ -93,10 +99,10 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
 
         if inspect.isclass(scope_obj) and scope_obj != object:
             if name == "__init__" and doc == object.__init__.__doc__:
-                print_v(f"ignoring __doc__ for {qualname}")
+                print_t(f"ignoring __doc__ for {qualname}")
                 return None
             elif name == "__new__" and doc == object.__new__.__doc__:
-                print_v(f"ignoring __doc__ for {qualname}")
+                print_t(f"ignoring __doc__ for {qualname}")
                 return None
 
         return doc
@@ -107,7 +113,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         if inspect.isdatadescriptor(raw_obj):
             doc = getattr(raw_obj, "__doc__", None)
             if doc:
-                print_i(f"using __doc__ from descriptor for {qualname}")
+                print_v(f"using __doc__ from descriptor for {qualname}")
                 return doc
 
         if not inspect.isclass(obj):
@@ -119,7 +125,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
             if raw_doc is None or inspect.isdatadescriptor(raw_doc):
                 doc = getattr(obj, "__doc__", None)
                 if doc:
-                    print_i(f"using __doc__ from class instance {qualname}")
+                    print_v(f"using __doc__ from class instance {qualname}")
                     return doc
 
         return None
@@ -348,12 +354,12 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            print_v(f"docstring for {qualname} already exists, skipping")
+            print_t(f"docstring for {qualname} already exists, skipping")
             return updated_node
 
         r = get_obj(self.mod, qualname)
         if r is None:
-            print_v(f"cannot find {qualname}")
+            print_t(f"cannot find {qualname}")
             return updated_node
 
         scope_obj, obj = r
@@ -373,7 +379,7 @@ class Transformer(cst.CSTTransformer):
                 doc = inspect.cleandoc(doc)
 
         if not doc:
-            print_v(f"could not find __doc__ for {qualname}")
+            print_t(f"could not find __doc__ for {qualname}")
             return updated_node
 
         indent = ""
@@ -391,7 +397,7 @@ class Transformer(cst.CSTTransformer):
                 n = self.get_metadata(meta.ParentNodeProvider, n, None)
 
         doc = docquote_str(doc, indent)
-        print_v(f"__doc__ for {qualname}:\n{doc}")
+        print_t(f"__doc__ for {qualname}:\n{doc}")
 
         docstring_node = cst.SimpleStatementLine([cst.Expr(cst.SimpleString(doc))])
 
@@ -430,17 +436,17 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            print_v(f"docstring for {self.import_path} already exists, skipping")
+            print_t(f"docstring for {self.import_path} already exists, skipping")
             return updated_node
 
         doc = getattr(self.mod, "__doc__", None)
         if not doc:
-            print_v(f"could not find __doc__ for {self.import_path}")
+            print_t(f"could not find __doc__ for {self.import_path}")
             return updated_node
 
         doc = inspect.cleandoc(doc)
         doc = docquote_str(doc)
-        print_v(f"__doc__ for {self.import_path}:\n{doc}")
+        print_t(f"__doc__ for {self.import_path}:\n{doc}")
 
         node_body = updated_node.body
         if len(node_body) != 0:
@@ -477,8 +483,16 @@ def main():
     arg_parser.add_argument(
         "-v",
         "--verbose",
-        action="store_true",
-        help="print verbose output",
+        action="count",
+        default=0,
+        help="increase verbosity",
+    )
+    arg_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="count",
+        default=0,
+        help="decrease verbosity",
     )
     arg_parser.add_argument(
         "input_dir",
@@ -501,15 +515,16 @@ def main():
 
     args = arg_parser.parse_args()
 
-    global VERBOSE
-    VERBOSE = args.verbose
+    global VERBOSITY
+    VERBOSITY += args.verbose
+    VERBOSITY -= args.quiet
 
     input_dir: str = args.input_dir
 
     # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
     warnings.simplefilter("ignore", DeprecationWarning)
 
-    queue = []
+    queue: list[tuple[str, str]] = []
 
     for base_dir, _, filenames in os.walk(input_dir):
         for filename in filenames:
@@ -528,7 +543,12 @@ def main():
 
             queue.append((import_path, file_relpath))
 
-    for import_path, file_relpath in tqdm(queue, dynamic_ncols=True):
+    if VERBOSITY > 0:
+        queue_iter = tqdm(queue, dynamic_ncols=True)
+    else:
+        queue_iter = queue
+
+    for import_path, file_relpath in queue_iter:
         file_path = os.path.join(input_dir, file_relpath)
 
         try:
