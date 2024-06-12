@@ -10,7 +10,7 @@ import warnings
 from argparse import ArgumentParser
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Sequence, cast
+from typing import Literal, Sequence, cast
 
 import libcst as cst
 import libcst.matchers as m
@@ -265,8 +265,21 @@ class ConditionProvider(meta.BatchableMetadataProvider[bool]):
             self.set_metadata(original_node, left or right)
 
 
-class IfProvider(meta.BatchableMetadataProvider[bool]):
+class UnreachableProvider(meta.BatchableMetadataProvider[Literal[True]]):
     METADATA_DEPENDENCIES = [ConditionProvider]
+
+    class SetMetadataVisitor(cst.CSTVisitor):
+        def __init__(self, provider: "UnreachableProvider"):
+            super().__init__()
+            self.provider = provider
+
+        def on_leave(self, original_node):
+            self.provider.set_metadata(original_node, True)
+            super().on_leave(original_node)
+
+    def mark_unreachable(self, node: cst.If | cst.Else):
+        self.set_metadata(node, True)
+        node.body.visit(self.SetMetadataVisitor(self))
 
     def visit_If(self, node):
         cond = self.get_metadata(type(self), node, None)
@@ -278,24 +291,20 @@ class IfProvider(meta.BatchableMetadataProvider[bool]):
             print_w(f"encountered unsupported condition:\n{node.test}")
             return
 
-        self.set_metadata(node, cond)
         if cond:
+            # condition is true - subsequent branches are unreachable
             while True:
                 node = node.orelse
                 if node is None:
                     break
                 elif isinstance(node, cst.If):
-                    self.set_metadata(node, False)
+                    self.mark_unreachable(node)
                 elif isinstance(node, cst.Else):
-                    self.set_metadata(node, False)
+                    self.mark_unreachable(node)
                     break
-
-    def visit_Else(self, node):
-        cond = self.get_metadata(type(self), node, None)
-        if cond is not None:
-            return
-
-        self.set_metadata(node, True)
+        else:
+            # condition is false - this branch is unreachable
+            self.mark_unreachable(node)
 
 
 # TODO: somehow add module attribute docstrings? e.g. typing.Union
@@ -303,21 +312,16 @@ class IfProvider(meta.BatchableMetadataProvider[bool]):
 
 
 class Transformer(cst.CSTTransformer):
-    METADATA_DEPENDENCIES = [meta.ScopeProvider, meta.ParentNodeProvider, IfProvider]
+    METADATA_DEPENDENCIES = [
+        meta.ScopeProvider,
+        meta.ParentNodeProvider,
+        UnreachableProvider,
+    ]
 
     def __init__(self, import_path: str, mod: ModuleType):
         super().__init__()
         self.import_path = import_path
         self.mod = mod
-
-    def check_ifs(self, node: cst.CSTNode | None):
-        while node is not None:
-            if isinstance(node, (cst.If, cst.Else)):
-                if not self.get_metadata(IfProvider, node, True):
-                    return False
-            node = self.get_metadata(meta.ParentNodeProvider, node, None)
-
-        return True
 
     def leave_ClassFunctionDef(
         self,
@@ -328,7 +332,7 @@ class Transformer(cst.CSTTransformer):
         if scope is None:
             return updated_node
 
-        if not self.check_ifs(original_node):
+        if self.get_metadata(UnreachableProvider, original_node, False):
             return updated_node
 
         name = original_node.name.value
