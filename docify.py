@@ -10,7 +10,7 @@ import warnings
 from argparse import ArgumentParser
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Literal, Sequence, cast
+from typing import Literal, Optional, Sequence, Union, cast
 
 import libcst as cst
 import libcst.matchers as m
@@ -45,7 +45,7 @@ def print_e(s):
     tqdm.write(f"ERROR: {s}")
 
 
-def get_obj(mod: ModuleType, qualname: str) -> tuple[object, object] | None:
+def get_obj(mod: ModuleType, qualname: str) -> Optional[tuple[object, object]]:
     scope_obj = None
     obj = mod
     try:
@@ -74,8 +74,7 @@ def get_qualname(scope: meta.Scope, name: str):
 def get_doc_class(obj: object, qualname: str):
     doc = getattr(obj, "__doc__", None)
 
-    # if __doc__ is a descriptor, it means __doc__ is an instance attribute (property)
-    # and not an attribute of this actual class object
+    # ignore if __doc__ is a data descriptor (property)
     # e.g. types.BuiltinFunctionType, aka builtin_function_or_method,
     # or typing._SpecialForm
     if inspect.isdatadescriptor(doc):
@@ -86,17 +85,11 @@ def get_doc_class(obj: object, qualname: str):
 
 
 def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
-    if (
-        inspect.isbuiltin(obj)
-        or inspect.isfunction(obj)
-        or inspect.ismethod(obj)
-        or inspect.isbuiltin(obj)
-        or inspect.ismethoddescriptor(obj)
-        or inspect.ismethodwrapper(obj)
-        or inspect.isdatadescriptor(obj)
-    ):
+    if inspect.isroutine(obj) or inspect.isdatadescriptor(obj):
+        # for functions, methods and data descriptors, get __doc__ directly
         doc = getattr(obj, "__doc__", None)
 
+        # ignore __init__ and __new__ if they are inherited from object
         if inspect.isclass(scope_obj) and scope_obj != object:
             if name == "__init__" and doc == object.__init__.__doc__:
                 print_t(f"ignoring __doc__ for {qualname}")
@@ -106,29 +99,28 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
                 return None
 
         return doc
-    else:
-        # try to get the descriptor for the object, and get __doc__ from that
-        # this allows to get the docstring for e.g. object.__class__
-        raw_obj = scope_obj.__dict__.get(name)
-        if inspect.isdatadescriptor(raw_obj):
-            doc = getattr(raw_obj, "__doc__", None)
+
+    # try to get the descriptor for the object, and get __doc__ from that
+    # this allows to get the docstring for e.g. object.__class__
+    raw_obj = scope_obj.__dict__.get(name)
+    if inspect.isdatadescriptor(raw_obj):
+        doc = getattr(raw_obj, "__doc__", None)
+        if doc:
+            print_v(f"using __doc__ from descriptor for {qualname}")
+            return doc
+
+    if not inspect.isclass(obj):
+        # obj is an object (instance of a class)
+        # only get __doc__ if it is an attribute of the instance
+        # rather than the class, or if it is a data descriptor (property)
+        raw_doc = type(obj).__dict__.get("__doc__")
+        if raw_doc is None or inspect.isdatadescriptor(raw_doc):
+            doc = getattr(obj, "__doc__", None)
             if doc:
-                print_v(f"using __doc__ from descriptor for {qualname}")
+                print_v(f"using __doc__ from class instance {qualname}")
                 return doc
 
-        if not inspect.isclass(obj):
-            # obj is an object (instance of a class)
-            # only get __doc__ if it is defined as an instance attribute
-            # rather than a class attribute,
-            # or if it is defined as an instance descriptor (property)
-            raw_doc = type(obj).__dict__.get("__doc__")
-            if raw_doc is None or inspect.isdatadescriptor(raw_doc):
-                doc = getattr(obj, "__doc__", None)
-                if doc:
-                    print_v(f"using __doc__ from class instance {qualname}")
-                    return doc
-
-        return None
+    return None
 
 
 def docquote_str(doc: str, indent: str = ""):
@@ -277,7 +269,7 @@ class UnreachableProvider(meta.BatchableMetadataProvider[Literal[True]]):
             self.provider.set_metadata(original_node, True)
             super().on_leave(original_node)
 
-    def mark_unreachable(self, node: cst.If | cst.Else):
+    def mark_unreachable(self, node: Union[cst.If, cst.Else]):
         self.set_metadata(node, True)
         node.body.visit(self.SetMetadataVisitor(self))
 
@@ -325,8 +317,8 @@ class Transformer(cst.CSTTransformer):
 
     def leave_ClassFunctionDef(
         self,
-        original_node: cst.ClassDef | cst.FunctionDef,
-        updated_node: cst.ClassDef | cst.FunctionDef,
+        original_node: Union[cst.ClassDef, cst.FunctionDef],
+        updated_node: Union[cst.ClassDef, cst.FunctionDef],
     ):
         scope = self.get_metadata(meta.ScopeProvider, original_node, None)
         if scope is None:
