@@ -491,6 +491,12 @@ def main():
         help="decrease verbosity",
     )
     arg_parser.add_argument(
+        "-b",
+        "--builtins-only",
+        action="store_true",
+        help="whether to only generate docs for stdlib modules written in c, where language servers would otherwise not be able to see docs due to there being no source module",
+    )
+    arg_parser.add_argument(
         "input_dir",
         metavar="INPUT_DIR",
         help="directory to read stubs from",
@@ -534,7 +540,7 @@ def main():
             import_path = import_path.replace(os.path.sep, ".")
             import_path = import_path.removesuffix(".__init__")
 
-            if import_path in IGNORE_MODULES:
+            if (import_path in IGNORE_MODULES) or (args.builtins_only and import_path not in sys.builtin_module_names):
                 continue
 
             queue.append((import_path, file_relpath))
