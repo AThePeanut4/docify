@@ -15,7 +15,6 @@ from typing import Literal, Optional, Sequence, Union, cast
 import libcst as cst
 import libcst.matchers as m
 import libcst.metadata as meta
-from tqdm import tqdm
 
 IGNORE_MODULES = ("antigravity", "this")
 
@@ -24,25 +23,25 @@ VERBOSITY = 1
 
 def print_t(s):
     if VERBOSITY > 2:
-        tqdm.write(f"TRACE: {s}")
+        print(f"TRACE: {s}")
 
 
 def print_v(s):
     if VERBOSITY > 1:
-        tqdm.write(f"VERBOSE: {s}")
+        print(f"VERBOSE: {s}")
 
 
 def print_i(s):
     if VERBOSITY > 0:
-        tqdm.write(f"INFO: {s}")
+        print(f"INFO: {s}")
 
 
 def print_w(s):
-    tqdm.write(f"WARNING: {s}")
+    print(f"WARNING: {s}")
 
 
 def print_e(s):
-    tqdm.write(f"ERROR: {s}")
+    print(f"ERROR: {s}")
 
 
 def get_obj(mod: ModuleType, qualname: str) -> Optional[tuple[object, object]]:
@@ -475,7 +474,9 @@ class Transformer(cst.CSTTransformer):
 
 
 def main():
-    arg_parser = ArgumentParser()
+    arg_parser = ArgumentParser(
+        description="A script to add docstrings to Python type stubs using reflection"
+    )
     arg_parser.add_argument(
         "-v",
         "--verbose",
@@ -494,7 +495,7 @@ def main():
         "-b",
         "--builtins-only",
         action="store_true",
-        help="whether to only generate docs for stdlib modules written in c, where language servers would otherwise not be able to see docs due to there being no source module",
+        help="only add docstrings to modules found in `sys.builtin_module_names`",
     )
     arg_parser.add_argument(
         "input_dir",
@@ -504,7 +505,7 @@ def main():
     output_group = arg_parser.add_mutually_exclusive_group(required=True)
     output_group.add_argument(
         "-i",
-        "--inplace",
+        "--in-place",
         action="store_true",
         help="modify stubs in-place",
     )
@@ -540,12 +541,20 @@ def main():
             import_path = import_path.replace(os.path.sep, ".")
             import_path = import_path.removesuffix(".__init__")
 
-            if (import_path in IGNORE_MODULES) or (args.builtins_only and import_path not in sys.builtin_module_names):
+            if import_path in IGNORE_MODULES:
+                continue
+            if args.builtins_only and import_path not in sys.builtin_module_names:
                 continue
 
             queue.append((import_path, file_relpath))
 
     if VERBOSITY > 0:
+        from tqdm import tqdm
+
+        # a bit hacky, but eh
+        global print
+        print = tqdm.write
+
         queue_iter = tqdm(queue, dynamic_ncols=True)
     else:
         queue_iter = queue
@@ -578,7 +587,7 @@ def main():
 
         new_stub_cst = wrapper.visit(visitor)
 
-        if args.inplace:
+        if args.in_place:
             f = NamedTemporaryFile(
                 dir=input_dir,
                 prefix=file_relpath + ".",
