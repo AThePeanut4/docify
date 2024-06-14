@@ -165,7 +165,12 @@ class ConditionProvider(meta.BatchableMetadataProvider[bool]):
                 ),
                 comparisons=[
                     m.ComparisonTarget(
-                        m.GreaterThanEqual() | m.LessThan(),
+                        m.GreaterThanEqual()
+                        | m.GreaterThan()
+                        | m.Equal()
+                        | m.NotEqual()
+                        | m.LessThan()
+                        | m.LessThanEqual(),
                         comparator=m.Tuple(
                             [
                                 m.Element(m.Integer()),
@@ -189,10 +194,42 @@ class ConditionProvider(meta.BatchableMetadataProvider[bool]):
                             ),
                         )
                         | m.ComparisonTarget(
+                            m.GreaterThan(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info > get_version(els)
+                                ),
+                            ),
+                        )
+                        | m.ComparisonTarget(
+                            m.Equal(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info == get_version(els)
+                                ),
+                            ),
+                        )
+                        | m.ComparisonTarget(
+                            m.NotEqual(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info != get_version(els)
+                                ),
+                            ),
+                        )
+                        | m.ComparisonTarget(
                             m.LessThan(),
                             comparator=m.Tuple(
                                 m.MatchIfTrue(
                                     lambda els: sys.version_info < get_version(els)
+                                ),
+                            ),
+                        )
+                        | m.ComparisonTarget(
+                            m.LessThanEqual(),
+                            comparator=m.Tuple(
+                                m.MatchIfTrue(
+                                    lambda els: sys.version_info <= get_version(els)
                                 ),
                             ),
                         )
