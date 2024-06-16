@@ -510,7 +510,7 @@ class Transformer(cst.CSTTransformer):
         return updated_node.with_changes(body=node_body)
 
 
-def main():
+def main(*args: str):
     arg_parser = ArgumentParser(
         description="A script to add docstrings to Python type stubs using reflection"
     )
@@ -553,7 +553,7 @@ def main():
         help="directory to write modified stubs to",
     )
 
-    args = arg_parser.parse_args()
+    args = arg_parser.parse_args(args)
 
     global VERBOSITY
     VERBOSITY += args.verbose
@@ -649,4 +649,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(*sys.argv)
