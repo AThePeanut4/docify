@@ -641,7 +641,7 @@ def main(*args: str):
             shutil.copymode(file_path, f.name)
             os.replace(f.name, file_path)
         else:
-            output_path = os.path.join(args.output_dir, file_relpath)
+            output_path = os.path.join(args.output, file_relpath)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             with open(output_path, "w") as f:
