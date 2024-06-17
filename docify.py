@@ -44,7 +44,7 @@ def print_e(s):
     print(f"ERROR: {s}")
 
 
-def get_obj(mod: ModuleType, qualname: str) -> Optional[tuple[object, object]]:
+def get_obj(mod: ModuleType, qualname: str) -> "Optional[tuple[object, object]]":
     scope_obj = None
     obj = mod
     try:
@@ -529,7 +529,8 @@ def run(
                 continue
 
             import_path = import_path.replace(os.path.sep, ".")
-            import_path = import_path.removesuffix(".__init__")
+            if import_path[-9:] == ".__init__":
+                import_path = import_path[:-9]
 
             if import_path in IGNORE_MODULES:
                 continue

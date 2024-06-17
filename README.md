@@ -13,7 +13,7 @@ A script to add docstrings to Python type stubs using reflection
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.8+
 - [LibCST](https://github.com/Instagram/LibCST), and [tqdm](https://github.com/tqdm/tqdm) for a progress bar if running without `-q`
 
 ## Usage
