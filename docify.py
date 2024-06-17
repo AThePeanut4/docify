@@ -517,9 +517,6 @@ def run(
     in_place: bool = True,
     output_dir: str = "",
 ):
-    # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
-    warnings.simplefilter("ignore", DeprecationWarning)
-
     queue: list[tuple[str, str]] = []
 
     for base_dir, _, filenames in os.walk(input_dir):
@@ -552,56 +549,60 @@ def run(
     else:
         queue_iter = queue
 
-    for import_path, file_relpath in queue_iter:
-        file_path = os.path.join(input_dir, file_relpath)
+    with warnings.catch_warnings():
+        # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
+        warnings.simplefilter("ignore", DeprecationWarning)
 
-        try:
-            mod = importlib.import_module(import_path)
-        except ModuleNotFoundError:
-            print_w(f"could not import {import_path}, module not found")
-            continue
-        except ImportError as e:
-            print_e(f"could not import {import_path}, {e}")
-            continue
+        for import_path, file_relpath in queue_iter:
+            file_path = os.path.join(input_dir, file_relpath)
 
-        with open(file_path, "r") as f:
-            stub_source = f.read()
-
-        try:
-            stub_cst = cst.parse_module(stub_source)
-        except Exception as e:
-            print_e(f"could not parse {file_relpath}: {e}")
-            continue
-
-        print_i(f"processing {file_relpath}")
-
-        wrapper = cst.MetadataWrapper(stub_cst)
-        visitor = Transformer(import_path, mod)
-
-        new_stub_cst = wrapper.visit(visitor)
-
-        if in_place:
-            f = NamedTemporaryFile(
-                dir=input_dir,
-                prefix=file_relpath + ".",
-                mode="w",
-                delete=False,
-            )
             try:
-                with f:
+                mod = importlib.import_module(import_path)
+            except ModuleNotFoundError:
+                print_w(f"could not import {import_path}, module not found")
+                continue
+            except ImportError as e:
+                print_e(f"could not import {import_path}, {e}")
+                continue
+
+            with open(file_path, "r") as f:
+                stub_source = f.read()
+
+            try:
+                stub_cst = cst.parse_module(stub_source)
+            except Exception as e:
+                print_e(f"could not parse {file_relpath}: {e}")
+                continue
+
+            print_i(f"processing {file_relpath}")
+
+            wrapper = cst.MetadataWrapper(stub_cst)
+            visitor = Transformer(import_path, mod)
+
+            new_stub_cst = wrapper.visit(visitor)
+
+            if in_place:
+                f = NamedTemporaryFile(
+                    dir=input_dir,
+                    prefix=file_relpath + ".",
+                    mode="w",
+                    delete=False,
+                )
+                try:
+                    with f:
+                        f.write(new_stub_cst.code)
+                except:
+                    os.remove(f.name)
+                    raise
+
+                shutil.copymode(file_path, f.name)
+                os.replace(f.name, file_path)
+            else:
+                output_path = os.path.join(output_dir, file_relpath)
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+                with open(output_path, "w") as f:
                     f.write(new_stub_cst.code)
-            except:
-                os.remove(f.name)
-                raise
-
-            shutil.copymode(file_path, f.name)
-            os.replace(f.name, file_path)
-        else:
-            output_path = os.path.join(output_dir, file_relpath)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-            with open(output_path, "w") as f:
-                f.write(new_stub_cst.code)
 
 
 def main(*args: str):
