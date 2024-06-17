@@ -18,7 +18,7 @@ import libcst.metadata as meta
 
 IGNORE_MODULES = ("antigravity", "this")
 
-VERBOSITY = 1
+VERBOSITY = 0
 
 
 def print_t(s):
@@ -510,57 +510,13 @@ class Transformer(cst.CSTTransformer):
         return updated_node.with_changes(body=node_body)
 
 
-def main(*args: str):
-    arg_parser = ArgumentParser(
-        description="A script to add docstrings to Python type stubs using reflection"
-    )
-    arg_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        help="increase verbosity",
-    )
-    arg_parser.add_argument(
-        "-q",
-        "--quiet",
-        action="count",
-        default=0,
-        help="decrease verbosity",
-    )
-    arg_parser.add_argument(
-        "-b",
-        "--builtins-only",
-        action="store_true",
-        help="only add docstrings to modules found in `sys.builtin_module_names`",
-    )
-    arg_parser.add_argument(
-        "input_dir",
-        metavar="INPUT_DIR",
-        help="directory to read stubs from",
-    )
-    output_group = arg_parser.add_mutually_exclusive_group(required=True)
-    output_group.add_argument(
-        "-i",
-        "--in-place",
-        action="store_true",
-        help="modify stubs in-place",
-    )
-    output_group.add_argument(
-        "-o",
-        "--output",
-        metavar="OUTPUT_DIR",
-        help="directory to write modified stubs to",
-    )
-
-    args = arg_parser.parse_args(args)
-
-    global VERBOSITY
-    VERBOSITY += args.verbose
-    VERBOSITY -= args.quiet
-
-    input_dir: str = args.input_dir
-
+def run(
+    *,
+    input_dir: str,
+    builtins_only: bool = False,
+    in_place: bool = True,
+    output_dir: str = "",
+):
     # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
     warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -580,7 +536,7 @@ def main(*args: str):
 
             if import_path in IGNORE_MODULES:
                 continue
-            if args.builtins_only and import_path not in sys.builtin_module_names:
+            if builtins_only and import_path not in sys.builtin_module_names:
                 continue
 
             queue.append((import_path, file_relpath))
@@ -624,7 +580,7 @@ def main(*args: str):
 
         new_stub_cst = wrapper.visit(visitor)
 
-        if args.in_place:
+        if in_place:
             f = NamedTemporaryFile(
                 dir=input_dir,
                 prefix=file_relpath + ".",
@@ -641,11 +597,68 @@ def main(*args: str):
             shutil.copymode(file_path, f.name)
             os.replace(f.name, file_path)
         else:
-            output_path = os.path.join(args.output, file_relpath)
+            output_path = os.path.join(output_dir, file_relpath)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             with open(output_path, "w") as f:
                 f.write(new_stub_cst.code)
+
+
+def main(*args: str):
+    arg_parser = ArgumentParser(
+        description="A script to add docstrings to Python type stubs using reflection"
+    )
+    arg_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="increase verbosity",
+    )
+    arg_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="count",
+        default=0,
+        help="decrease verbosity",
+    )
+    arg_parser.add_argument(
+        "-b",
+        "--builtins-only",
+        action="store_true",
+        help="only add docstrings to modules found in `sys.builtin_module_names`",
+    )
+    arg_parser.add_argument(
+        "input_dir",
+        metavar="INPUT_DIR",
+        help="directory to read stubs from",
+    )
+    output_group = arg_parser.add_mutually_exclusive_group(required=True)
+    output_group.add_argument(
+        "-i",
+        "--in-place",
+        action="store_true",
+        help="modify stubs in-place",
+    )
+    output_group.add_argument(
+        "-o",
+        "--output",
+        metavar="OUTPUT_DIR",
+        dest="output_dir",
+        help="directory to write modified stubs to",
+    )
+
+    parsed_args = arg_parser.parse_args(args)
+
+    global VERBOSITY
+    VERBOSITY = 1
+    VERBOSITY += parsed_args.verbose
+    VERBOSITY -= parsed_args.quiet
+
+    run_args = vars(parsed_args)
+    del run_args["verbose"]
+    del run_args["quiet"]
+    run(**run_args)
 
 
 if __name__ == "__main__":
