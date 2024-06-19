@@ -564,8 +564,8 @@ def run(
             except ModuleNotFoundError:
                 print_w(f"could not import {import_path}, module not found")
                 continue
-            except ImportError as e:
-                print_e(f"could not import {import_path}, {e}")
+            except Exception as e:
+                print_w(f"could not import {import_path}, {e}")
                 continue
 
             with open(file_path, "r", encoding="utf-8") as f:
