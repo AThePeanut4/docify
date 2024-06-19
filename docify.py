@@ -404,7 +404,7 @@ class Transformer(cst.CSTTransformer):
             doc = None
 
         if doc is not None:
-            if type(doc) != str:
+            if isinstance(doc, str):
                 print_w(f"__doc__ for {qualname} is {type(doc)!r}, not str")
                 doc = None
             else:
