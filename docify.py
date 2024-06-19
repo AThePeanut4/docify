@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import importlib
 import inspect
 import os
@@ -10,7 +12,7 @@ import warnings
 from argparse import ArgumentParser
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Literal, Optional, Sequence, Union, cast
+from typing import Literal, Sequence, cast
 
 import libcst as cst
 import libcst.matchers as m
@@ -44,7 +46,7 @@ def print_e(s):
     print(f"ERROR: {s}")
 
 
-def get_obj(mod: ModuleType, qualname: str) -> "Optional[tuple[object, object]]":
+def get_obj(mod: ModuleType, qualname: str) -> tuple[object, object] | None:
     scope_obj = None
     obj = mod
     try:
@@ -305,7 +307,7 @@ class UnreachableProvider(meta.BatchableMetadataProvider[Literal[True]]):
             self.provider.set_metadata(original_node, True)
             super().on_leave(original_node)
 
-    def mark_unreachable(self, node: Union[cst.If, cst.Else]):
+    def mark_unreachable(self, node: cst.If | cst.Else):
         self.set_metadata(node, True)
         node.body.visit(self.SetMetadataVisitor(self))
 
@@ -353,8 +355,8 @@ class Transformer(cst.CSTTransformer):
 
     def leave_ClassFunctionDef(
         self,
-        original_node: Union[cst.ClassDef, cst.FunctionDef],
-        updated_node: Union[cst.ClassDef, cst.FunctionDef],
+        original_node: cst.ClassDef | cst.FunctionDef,
+        updated_node: cst.ClassDef | cst.FunctionDef,
     ):
         scope = self.get_metadata(meta.ScopeProvider, original_node, None)
         if scope is None:
