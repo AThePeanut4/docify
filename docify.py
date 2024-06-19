@@ -568,7 +568,7 @@ def run(
                 print_e(f"could not import {import_path}, {e}")
                 continue
 
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 stub_source = f.read()
 
             try:
@@ -590,6 +590,7 @@ def run(
                     prefix=file_relpath + ".",
                     mode="w",
                     delete=False,
+                    encoding="utf-8",
                 )
                 try:
                     with f:
@@ -604,7 +605,7 @@ def run(
                 output_path = os.path.join(output_dir, file_relpath)
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-                with open(output_path, "w") as f:
+                with open(output_path, "w", encoding="utf-8") as f:
                     f.write(new_stub_cst.code)
 
 
