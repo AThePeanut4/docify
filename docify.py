@@ -12,7 +12,7 @@ import warnings
 from argparse import ArgumentParser
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Literal, Sequence, cast
+from typing import Callable, Literal, Sequence, cast
 
 import libcst as cst
 import libcst.matchers as m
@@ -22,28 +22,47 @@ IGNORE_MODULES = ("antigravity", "this")
 
 VERBOSITY = 0
 
+logger: Callable[[str]] = print
 
-def print_t(s):
+
+def log_t(s):
     if VERBOSITY > 2:
-        print(f"TRACE: {s}")
+        logger(f"TRACE: {s}")
 
 
-def print_v(s):
+def log_v(s):
     if VERBOSITY > 1:
-        print(f"VERBOSE: {s}")
+        logger(f"VERBOSE: {s}")
 
 
-def print_i(s):
+def log_i(s):
     if VERBOSITY > 0:
-        print(f"INFO: {s}")
+        logger(f"INFO: {s}")
 
 
-def print_w(s):
-    print(f"WARNING: {s}")
+def log_w(s):
+    logger(f"WARNING: {s}")
 
 
-def print_e(s):
-    print(f"ERROR: {s}")
+def log_e(s):
+    logger(f"ERROR: {s}")
+
+
+def queue_iter(queue):
+    if VERBOSITY > 0:
+        try:
+            from tqdm import tqdm
+        except ModuleNotFoundError:
+            return queue
+
+        # a bit hacky, but eh
+        global logger
+        if logger == print:
+            logger = tqdm.write
+
+        return tqdm(queue, dynamic_ncols=True)
+    else:
+        return queue
 
 
 def get_obj(mod: ModuleType, qualname: str) -> tuple[object, object] | None:
@@ -79,7 +98,7 @@ def get_doc_class(obj: object, qualname: str):
     # e.g. types.BuiltinFunctionType, aka builtin_function_or_method,
     # or typing._SpecialForm
     if inspect.isdatadescriptor(doc):
-        print_v(f"ignoring __doc__ descriptor for {qualname}")
+        log_v(f"ignoring __doc__ descriptor for {qualname}")
         return None
 
     return doc
@@ -93,10 +112,10 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         # ignore __init__ and __new__ if they are inherited from object
         if inspect.isclass(scope_obj) and scope_obj != object:
             if name == "__init__" and doc == object.__init__.__doc__:
-                print_t(f"ignoring __doc__ for {qualname}")
+                log_t(f"ignoring __doc__ for {qualname}")
                 return None
             elif name == "__new__" and doc == object.__new__.__doc__:
-                print_t(f"ignoring __doc__ for {qualname}")
+                log_t(f"ignoring __doc__ for {qualname}")
                 return None
 
         return doc
@@ -107,7 +126,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
     if inspect.isdatadescriptor(raw_obj):
         doc = getattr(raw_obj, "__doc__", None)
         if doc:
-            print_v(f"using __doc__ from descriptor for {qualname}")
+            log_v(f"using __doc__ from descriptor for {qualname}")
             return doc
 
     if not inspect.isclass(obj):
@@ -118,7 +137,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         if raw_doc is None or inspect.isdatadescriptor(raw_doc):
             doc = getattr(obj, "__doc__", None)
             if doc:
-                print_v(f"using __doc__ from class instance {qualname}")
+                log_v(f"using __doc__ from class instance {qualname}")
                 return doc
 
     return None
@@ -318,7 +337,7 @@ class UnreachableProvider(meta.BatchableMetadataProvider[Literal[True]]):
 
         cond = self.get_metadata(ConditionProvider, node.test, None)
         if cond is None:
-            print_w(f"encountered unsupported condition:\n{node.test}")
+            log_w(f"encountered unsupported condition:\n{node.test}")
             return
 
         if cond:
@@ -388,12 +407,12 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            print_t(f"docstring for {qualname} already exists, skipping")
+            log_t(f"docstring for {qualname} already exists, skipping")
             return updated_node
 
         r = get_obj(self.mod, qualname)
         if r is None:
-            print_t(f"cannot find {qualname}")
+            log_t(f"cannot find {qualname}")
             return updated_node
 
         scope_obj, obj = r
@@ -407,13 +426,13 @@ class Transformer(cst.CSTTransformer):
 
         if doc is not None:
             if not isinstance(doc, str):
-                print_w(f"__doc__ for {qualname} is {type(doc)!r}, not str")
+                log_w(f"__doc__ for {qualname} is {type(doc)!r}, not str")
                 doc = None
             else:
                 doc = inspect.cleandoc(doc)
 
         if not doc:
-            print_t(f"could not find __doc__ for {qualname}")
+            log_t(f"could not find __doc__ for {qualname}")
             return updated_node
 
         indent = ""
@@ -431,7 +450,7 @@ class Transformer(cst.CSTTransformer):
                 n = self.get_metadata(meta.ParentNodeProvider, n, None)
 
         doc = docquote_str(doc, indent)
-        print_t(f"__doc__ for {qualname}:\n{doc}")
+        log_t(f"__doc__ for {qualname}:\n{doc}")
 
         docstring_node = cst.SimpleStatementLine([cst.Expr(cst.SimpleString(doc))])
 
@@ -470,17 +489,17 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            print_t(f"docstring for {self.import_path} already exists, skipping")
+            log_t(f"docstring for {self.import_path} already exists, skipping")
             return updated_node
 
         doc = getattr(self.mod, "__doc__", None)
         if not doc:
-            print_t(f"could not find __doc__ for {self.import_path}")
+            log_t(f"could not find __doc__ for {self.import_path}")
             return updated_node
 
         doc = inspect.cleandoc(doc)
         doc = docquote_str(doc)
-        print_t(f"__doc__ for {self.import_path}:\n{doc}")
+        log_t(f"__doc__ for {self.import_path}:\n{doc}")
 
         node_body = updated_node.body
         if len(node_body) != 0:
@@ -541,31 +560,20 @@ def run(
 
             queue.append((import_path, file_relpath))
 
-    if VERBOSITY > 0:
-        from tqdm import tqdm
-
-        # a bit hacky, but eh
-        global print
-        print = tqdm.write
-
-        queue_iter = tqdm(queue, dynamic_ncols=True)
-    else:
-        queue_iter = queue
-
     with warnings.catch_warnings():
         # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
         warnings.simplefilter("ignore", DeprecationWarning)
 
-        for import_path, file_relpath in queue_iter:
+        for import_path, file_relpath in queue_iter(queue):
             file_path = os.path.join(input_dir, file_relpath)
 
             try:
                 mod = importlib.import_module(import_path)
             except ModuleNotFoundError:
-                print_w(f"could not import {import_path}, module not found")
+                log_w(f"could not import {import_path}, module not found")
                 continue
             except Exception as e:
-                print_w(f"could not import {import_path}, {e}")
+                log_w(f"could not import {import_path}, {e}")
                 continue
 
             with open(file_path, "r", encoding="utf-8") as f:
@@ -574,10 +582,10 @@ def run(
             try:
                 stub_cst = cst.parse_module(stub_source)
             except Exception as e:
-                print_e(f"could not parse {file_relpath}: {e}")
+                log_e(f"could not parse {file_relpath}: {e}")
                 continue
 
-            print_i(f"processing {file_relpath}")
+            log_i(f"processing {file_relpath}")
 
             wrapper = cst.MetadataWrapper(stub_cst)
             visitor = Transformer(import_path, mod)
