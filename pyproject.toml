@@ -1,0 +1,33 @@
+[project]
+name = "docify"
+version = "0.1.0"
+dependencies = [
+    "libcst >= 1.1.0",
+    "tqdm >= 4.66.4",
+]
+requires-python = ">= 3.8"
+authors = [
+    { name = "AThePeanut4", email = "andre.toerien8@gmail.com" },
+]
+description = "A script to add docstrings to Python type stubs using reflection"
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Repository = "https://github.com/AThePeanut4/docify"
+
+[project.scripts]
+docify = "docify:main"
