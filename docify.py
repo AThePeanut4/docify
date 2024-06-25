@@ -617,7 +617,7 @@ def run(
                     f.write(new_stub_cst.code)
 
 
-def main(*args: str):
+def main(args: Sequence[str] | None = None):
     arg_parser = ArgumentParser(
         description="A script to add docstrings to Python type stubs using reflection"
     )
@@ -664,9 +664,7 @@ def main(*args: str):
     parsed_args = arg_parser.parse_args(args)
 
     global VERBOSITY
-    VERBOSITY = 1
-    VERBOSITY += parsed_args.verbose
-    VERBOSITY -= parsed_args.quiet
+    VERBOSITY = 1 + parsed_args.verbose - parsed_args.quiet
 
     run_args = vars(parsed_args)
     del run_args["verbose"]
@@ -675,4 +673,4 @@ def main(*args: str):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:])
+    main()
