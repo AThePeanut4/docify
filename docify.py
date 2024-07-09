@@ -367,10 +367,19 @@ class Transformer(cst.CSTTransformer):
         UnreachableProvider,
     ]
 
-    def __init__(self, import_path: str, mod: ModuleType):
+    def __init__(self, import_path: str, mod: ModuleType, if_needed: bool):
         super().__init__()
         self.import_path = import_path
         self.mod = mod
+        self.if_needed = if_needed
+
+    def check_if_needed(self, obj):
+        if not self.if_needed:
+            return True
+        try:
+            return not inspect.getsourcefile(obj)
+        except TypeError:
+            return True
 
     def leave_ClassFunctionDef(
         self,
@@ -416,6 +425,9 @@ class Transformer(cst.CSTTransformer):
             return updated_node
 
         scope_obj, obj = r
+
+        if not self.check_if_needed(obj):
+            return updated_node
 
         if isinstance(original_node, cst.FunctionDef):
             doc = get_doc_def(scope_obj, obj, qualname, name)
@@ -492,6 +504,9 @@ class Transformer(cst.CSTTransformer):
             log_t(f"docstring for {self.import_path} already exists, skipping")
             return updated_node
 
+        if not self.check_if_needed(self.mod):
+            return updated_node
+
         doc = getattr(self.mod, "__doc__", None)
         if not doc:
             log_t(f"could not find __doc__ for {self.import_path}")
@@ -535,6 +550,7 @@ def run(
     *,
     input_dir: str,
     builtins_only: bool = False,
+    if_needed: bool = False,
     in_place: bool = True,
     output_dir: str = "",
 ):
@@ -588,7 +604,7 @@ def run(
             log_i(f"processing {file_relpath}")
 
             wrapper = cst.MetadataWrapper(stub_cst)
-            visitor = Transformer(import_path, mod)
+            visitor = Transformer(import_path, mod, if_needed)
 
             new_stub_cst = wrapper.visit(visitor)
 
@@ -640,6 +656,11 @@ def main(args: Sequence[str] | None = None):
         "--builtins-only",
         action="store_true",
         help="only add docstrings to modules found in `sys.builtin_module_names`",
+    )
+    arg_parser.add_argument(
+        "--if-needed",
+        action="store_true",
+        help="only add a docstring if the object's source code cannot be found",
     )
     arg_parser.add_argument(
         "input_dir",

@@ -9,7 +9,8 @@ A script to add docstrings to Python type stubs using reflection
 - Handles most `sys.version` and `sys.platform` conditional blocks, will only add docstrings to the correct branch
 - Able to modify files in-place with `-i` or `--in-place`
 - Won't overwrite existing docstrings
-- With `-b` or `--builtins-only`, will only add docstrings for modules found in `sys.builtin_module_names` (stdlib modules written in C). Useful for language servers that would otherwise not be able to find docstrings due to there being no source file.
+- With `-b` or `--builtins-only`, will only add docstrings for modules found in `sys.builtin_module_names` (stdlib modules written in C).
+- With `--if-needed`, will only add docstrings if the object's (Python) source code is unavailable. Useful for language servers like [basedpyright](https://github.com/DetachHead/basedpyright) that are able to extract docstrings from source code.
 
 ## Requirements
 
@@ -19,7 +20,7 @@ A script to add docstrings to Python type stubs using reflection
 ## Usage
 
 ```
-docify.py [-h] [-v] [-q] [-b] (-i | -o OUTPUT_DIR) INPUT_DIR
+docify.py [-h] [-v] [-q] [-b] [--if-needed] (-i | -o OUTPUT_DIR) INPUT_DIR
 
 A script to add docstrings to Python type stubs using reflection
 
@@ -31,6 +32,7 @@ options:
   -v, --verbose         increase verbosity
   -q, --quiet           decrease verbosity
   -b, --builtins-only   only add docstrings to modules found in `sys.builtin_module_names`
+  --if-needed           only add a docstring if the object's source code cannot be found
   -i, --in-place        modify stubs in-place
   -o OUTPUT_DIR, --output OUTPUT_DIR
                         directory to write modified stubs to
