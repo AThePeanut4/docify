@@ -11,7 +11,7 @@ authors = [
 ]
 description = "A script to add docstrings to Python type stubs using reflection"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = { text = "MIT" }
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -31,3 +31,10 @@ Repository = "https://github.com/AThePeanut4/docify"
 
 [project.scripts]
 docify = "docify:main"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = true
