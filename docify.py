@@ -555,12 +555,15 @@ def run(
     in_place: bool = True,
     output_dir: str = "",
 ):
-    queue: list[tuple[str, Path]] = []
+    queue: list[tuple[str, Path, Path]] = []
 
     input_path = Path(input_dir)
 
     if not input_path.is_dir():
         raise ValueError("Input path must be a directory")
+
+    include_root = (input_path / "__init__.py").exists()
+    include_root = include_root or (input_path / "__init__.pyi").exists()
 
     for base_dir, _, filenames in input_path.walk():
         for filename in filenames:
@@ -572,6 +575,15 @@ def run(
 
             import_path = file_relpath.with_suffix("")
 
+            if include_root:
+                root = input_path.name
+                if root == "" or root == "..":
+                    # resolve the path to get the actual name of the parent dir
+                    root = input_path.resolve().name
+
+                import_path = root / import_path
+                file_relpath = root / file_relpath
+
             if import_path.name == "__init__":
                 import_path = import_path.parent
 
@@ -582,15 +594,13 @@ def run(
             if builtins_only and import_path not in sys.builtin_module_names:
                 continue
 
-            queue.append((import_path, file_relpath))
+            queue.append((import_path, file_path, file_relpath))
 
     with warnings.catch_warnings():
         # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
         warnings.simplefilter("ignore", DeprecationWarning)
 
-        for import_path, file_relpath in queue_iter(queue):
-            file_path = input_path / file_relpath
-
+        for import_path, file_path, file_relpath in queue_iter(queue):
             try:
                 mod = importlib.import_module(import_path)
             except ModuleNotFoundError:
@@ -606,10 +616,10 @@ def run(
             try:
                 stub_cst = cst.parse_module(stub_source)
             except Exception as e:
-                log_e(f"could not parse {file_relpath}: {e}")
+                log_e(f"could not parse {file_path}: {e}")
                 continue
 
-            log_i(f"processing {file_relpath}")
+            log_i(f"processing {file_path}")
 
             wrapper = cst.MetadataWrapper(stub_cst)
             visitor = Transformer(import_path, mod, if_needed)
@@ -618,8 +628,8 @@ def run(
 
             if in_place:
                 f = NamedTemporaryFile(
-                    dir=input_dir,
-                    prefix=f"{file_relpath}.",
+                    dir=file_path / "..",
+                    prefix=f"{file_path.name}.",
                     mode="w",
                     delete=False,
                     encoding="utf-8",
