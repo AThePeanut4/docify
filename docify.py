@@ -637,6 +637,13 @@ def main(args: Sequence[str] | None = None):
     arg_parser = ArgumentParser(
         description="A script to add docstrings to Python type stubs using reflection"
     )
+
+    arg_parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version="%(prog)s 1.0.0",
+    )
     arg_parser.add_argument(
         "-v",
         "--verbose",
