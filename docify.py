@@ -10,6 +10,7 @@ import sys
 import textwrap
 import warnings
 from argparse import ArgumentParser
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from types import ModuleType
 from typing import Callable, Literal, Sequence, cast
@@ -554,20 +555,27 @@ def run(
     in_place: bool = True,
     output_dir: str = "",
 ):
-    queue: list[tuple[str, str]] = []
+    queue: list[tuple[str, Path]] = []
 
-    for base_dir, _, filenames in os.walk(input_dir):
+    input_path = Path(input_dir)
+
+    if not input_path.is_dir():
+        raise ValueError("Input path must be a directory")
+
+    for base_dir, _, filenames in input_path.walk():
         for filename in filenames:
-            file_path = os.path.join(base_dir, filename)
-            file_relpath = os.path.relpath(file_path, input_dir)
+            file_path = base_dir / filename
+            file_relpath = file_path.relative_to(input_path)
 
-            import_path, file_ext = os.path.splitext(file_relpath)
-            if file_ext != ".pyi":
+            if file_relpath.suffix != ".pyi":
                 continue
 
-            import_path = import_path.replace(os.path.sep, ".")
-            if import_path[-9:] == ".__init__":
-                import_path = import_path[:-9]
+            import_path = file_relpath.with_suffix("")
+
+            if import_path.name == "__init__":
+                import_path = import_path.parent
+
+            import_path = str(import_path).replace(os.path.sep, ".")
 
             if import_path in IGNORE_MODULES:
                 continue
@@ -581,7 +589,7 @@ def run(
         warnings.simplefilter("ignore", DeprecationWarning)
 
         for import_path, file_relpath in queue_iter(queue):
-            file_path = os.path.join(input_dir, file_relpath)
+            file_path = input_path / file_relpath
 
             try:
                 mod = importlib.import_module(import_path)
@@ -611,7 +619,7 @@ def run(
             if in_place:
                 f = NamedTemporaryFile(
                     dir=input_dir,
-                    prefix=file_relpath + ".",
+                    prefix=f"{file_relpath}.",
                     mode="w",
                     delete=False,
                     encoding="utf-8",
@@ -626,10 +634,11 @@ def run(
                 shutil.copymode(file_path, f.name)
                 os.replace(f.name, file_path)
             else:
-                output_path = os.path.join(output_dir, file_relpath)
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                output_path = Path(output_dir)
+                output_file = output_path / file_relpath
+                os.makedirs(output_file.parent, exist_ok=True)
 
-                with open(output_path, "w", encoding="utf-8") as f:
+                with open(output_file, "w", encoding="utf-8") as f:
                     f.write(new_stub_cst.code)
 
 
