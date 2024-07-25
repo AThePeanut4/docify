@@ -111,7 +111,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         doc = getattr(obj, "__doc__", None)
 
         # ignore __init__ and __new__ if they are inherited from object
-        if inspect.isclass(scope_obj) and scope_obj != object:
+        if inspect.isclass(scope_obj) and scope_obj is not object:
             if name == "__init__" and doc == object.__init__.__doc__:
                 log_t(f"ignoring __doc__ for {qualname}")
                 return None
