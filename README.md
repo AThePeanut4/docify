@@ -12,15 +12,36 @@ A script to add docstrings to Python type stubs using reflection
 - With `-b` or `--builtins-only`, will only add docstrings for modules found in `sys.builtin_module_names` (stdlib modules written in C).
 - With `--if-needed`, will only add docstrings if the object's (Python) source code is unavailable. Useful for language servers like [basedpyright](https://github.com/DetachHead/basedpyright) that are able to extract docstrings from source code.
 
-## Requirements
+## Installation
 
-- Python 3.8+
-- [LibCST](https://github.com/Instagram/LibCST), and [tqdm](https://github.com/tqdm/tqdm) for a progress bar if running without `-q`
+Install from [PyPI](https://pypi.org/project/docify/):
+
+```sh
+pip install docify
+
+docify
+# or
+python -m docify
+```
+
+Or just download and run the script directly:
+
+```sh
+# Install dependencies
+pip install libcst tqdm  # tqdm is not needed if running with -q
+
+python docify.py
+# or
+python -m docify
+# or
+chmod +x docify.py
+./docify.py
+```
 
 ## Usage
 
 ```
-docify.py [-h] [-v] [-q] [-b] [--if-needed] (-i | -o OUTPUT_DIR) INPUT_DIR
+docify [-h] [-V] [-v] [-q] [-b] [--if-needed] (-i | -o OUTPUT_DIR) INPUT_DIR [INPUT_DIR ...]
 
 A script to add docstrings to Python type stubs using reflection
 
@@ -29,6 +50,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  -V, --version         show program's version number and exit
   -v, --verbose         increase verbosity
   -q, --quiet           decrease verbosity
   -b, --builtins-only   only add docstrings to modules found in `sys.builtin_module_names`
