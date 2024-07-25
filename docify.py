@@ -549,7 +549,8 @@ class Transformer(cst.CSTTransformer):
 
 def run(
     *,
-    input_dir: str,
+    input_dirs: list[str] | None = None,
+    input_dir: str | None = None,
     builtins_only: bool = False,
     if_needed: bool = False,
     in_place: bool = True,
@@ -557,44 +558,51 @@ def run(
 ):
     queue: list[tuple[str, Path, Path]] = []
 
-    input_path = Path(input_dir)
+    if input_dirs is None:
+        input_dirs = []
 
-    if not input_path.is_dir():
-        raise ValueError("Input path must be a directory")
+    if input_dir:
+        input_dirs.append(input_dir)
 
-    include_root = (input_path / "__init__.py").exists()
-    include_root = include_root or (input_path / "__init__.pyi").exists()
+    for input_dir in input_dirs:
+        input_path = Path(input_dir)
 
-    for base_dir, _, filenames in input_path.walk(follow_symlinks=True):
-        for filename in filenames:
-            file_path = base_dir / filename
-            file_relpath = file_path.relative_to(input_path)
+        if not input_path.is_dir():
+            raise ValueError(f"Input path '{input_dir}' is not a directory")
 
-            if file_relpath.suffix != ".pyi":
-                continue
+        include_root = (input_path / "__init__.py").exists()
+        include_root = include_root or (input_path / "__init__.pyi").exists()
 
-            import_path = file_relpath.with_suffix("")
+        for base_dir, _, filenames in input_path.walk(follow_symlinks=True):
+            for filename in filenames:
+                file_path = base_dir / filename
+                file_relpath = file_path.relative_to(input_path)
 
-            if include_root:
-                root = input_path.name
-                if root == "" or root == "..":
-                    # resolve the path to get the actual name of the parent dir
-                    root = input_path.resolve().name
+                if file_relpath.suffix != ".pyi":
+                    continue
 
-                import_path = root / import_path
-                file_relpath = root / file_relpath
+                import_path = file_relpath.with_suffix("")
 
-            if import_path.name == "__init__":
-                import_path = import_path.parent
+                if include_root:
+                    root = input_path.name
+                    if root == "" or root == "..":
+                        # resolve the path to get the actual name of the parent dir
+                        root = input_path.resolve().name
 
-            import_path = str(import_path).replace(os.path.sep, ".")
+                    import_path = root / import_path
+                    file_relpath = root / file_relpath
 
-            if import_path in IGNORE_MODULES:
-                continue
-            if builtins_only and import_path not in sys.builtin_module_names:
-                continue
+                if import_path.name == "__init__":
+                    import_path = import_path.parent
 
-            queue.append((import_path, file_path, file_relpath))
+                import_path = str(import_path).replace(os.path.sep, ".")
+
+                if import_path in IGNORE_MODULES:
+                    continue
+                if builtins_only and import_path not in sys.builtin_module_names:
+                    continue
+
+                queue.append((import_path, file_path, file_relpath))
 
     with warnings.catch_warnings():
         # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
@@ -689,8 +697,9 @@ def main(args: Sequence[str] | None = None):
         help="only add a docstring if the object's source code cannot be found",
     )
     arg_parser.add_argument(
-        "input_dir",
+        "input_dirs",
         metavar="INPUT_DIR",
+        nargs="+",
         help="directory to read stubs from",
     )
     output_group = arg_parser.add_mutually_exclusive_group(required=True)
