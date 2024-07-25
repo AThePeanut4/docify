@@ -565,7 +565,7 @@ def run(
     include_root = (input_path / "__init__.py").exists()
     include_root = include_root or (input_path / "__init__.pyi").exists()
 
-    for base_dir, _, filenames in input_path.walk():
+    for base_dir, _, filenames in input_path.walk(follow_symlinks=True):
         for filename in filenames:
             file_path = base_dir / filename
             file_relpath = file_path.relative_to(input_path)
