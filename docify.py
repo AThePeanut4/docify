@@ -50,7 +50,7 @@ def log_e(s):
 
 
 def queue_iter(queue):
-    if VERBOSITY > 0:
+    if VERBOSITY > 0 and sys.stdout.isatty():
         try:
             from tqdm import tqdm
         except ModuleNotFoundError:
