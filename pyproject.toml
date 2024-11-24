@@ -35,6 +35,3 @@ docify = "docify:main"
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
-
-[tool.pdm]
-distribution = true
