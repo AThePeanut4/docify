@@ -605,8 +605,8 @@ def run(
                 queue.append((import_path, file_path, file_relpath))
 
     with warnings.catch_warnings():
-        # accessing docstrings for deprecated classes/functions gives DeprecationWarnings
-        warnings.simplefilter("ignore", DeprecationWarning)
+        # ignore all warnings, mostly get DeprecationWarnings and a few SyntaxWarnings
+        warnings.simplefilter("ignore")
 
         for import_path, file_path, file_relpath in queue_iter(queue):
             try:
