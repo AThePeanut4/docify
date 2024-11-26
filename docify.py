@@ -506,16 +506,11 @@ class Transformer(cst.CSTTransformer):
         self.module = node
 
     def leave_Module(self, original_node, updated_node):
-        if m.matches(
-            updated_node,
-            m.Module(
+        if updated_node.body and m.matches(
+            updated_node.body[0],
+            m.SimpleStatementLine(
                 [
-                    m.SimpleStatementLine(
-                        [
-                            m.Expr(m.SimpleString()),
-                            m.ZeroOrMore(),
-                        ]
-                    ),
+                    m.Expr(m.SimpleString()),
                     m.ZeroOrMore(),
                 ]
             ),
