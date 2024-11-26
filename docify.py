@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Callable, Literal, Sequence, cast
+from typing import Any, Callable, Literal, Sequence, cast
 
 import libcst as cst
 import libcst.matchers as m
@@ -49,6 +49,24 @@ def log_e(s):
     logger(f"ERROR: {s}")
 
 
+_default_sentinel = object()
+
+
+def getattr_safe(o: object, name: str, default=_default_sentinel) -> Any:
+    try:
+        return getattr(o, name)
+    except AttributeError:
+        if default is _default_sentinel:
+            raise
+        return default
+    except Exception as e:
+        log_w(f"getattr({o!r}, {name!r}) raised an exception: {e}")
+
+        if default is _default_sentinel:
+            raise AttributeError
+        return default
+
+
 def queue_iter(queue):
     if VERBOSITY > 0 and sys.stdout.isatty():
         try:
@@ -72,7 +90,7 @@ def get_obj(mod: ModuleType, qualname: str) -> tuple[object, object] | None:
     try:
         for part in qualname.split("."):
             scope_obj = obj
-            obj = getattr(scope_obj, part)
+            obj = getattr_safe(scope_obj, part)
     except AttributeError:
         return None
     return scope_obj, obj
@@ -93,7 +111,7 @@ def get_qualname(scope: meta.Scope, name: str):
 
 
 def get_doc_class(obj: object, qualname: str):
-    doc = getattr(obj, "__doc__", None)
+    doc = getattr_safe(obj, "__doc__", None)
 
     # ignore if __doc__ is a data descriptor (property)
     # e.g. types.BuiltinFunctionType, aka builtin_function_or_method,
@@ -108,7 +126,7 @@ def get_doc_class(obj: object, qualname: str):
 def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
     if inspect.isroutine(obj) or inspect.isdatadescriptor(obj):
         # for functions, methods and data descriptors, get __doc__ directly
-        doc = getattr(obj, "__doc__", None)
+        doc = getattr_safe(obj, "__doc__", None)
 
         # ignore __init__ and __new__ if they are inherited from object
         if inspect.isclass(scope_obj) and scope_obj is not object:
@@ -125,7 +143,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
     # this allows to get the docstring for e.g. object.__class__
     raw_obj = scope_obj.__dict__.get(name)
     if inspect.isdatadescriptor(raw_obj):
-        doc = getattr(raw_obj, "__doc__", None)
+        doc = getattr_safe(raw_obj, "__doc__", None)
         if doc:
             log_v(f"using __doc__ from descriptor for {qualname}")
             return doc
@@ -136,7 +154,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         # rather than the class, or if it is a data descriptor (property)
         raw_doc = type(obj).__dict__.get("__doc__")
         if raw_doc is None or inspect.isdatadescriptor(raw_doc):
-            doc = getattr(obj, "__doc__", None)
+            doc = getattr_safe(obj, "__doc__", None)
             if doc:
                 log_v(f"using __doc__ from class instance {qualname}")
                 return doc
@@ -508,7 +526,7 @@ class Transformer(cst.CSTTransformer):
         if not self.check_if_needed(self.mod):
             return updated_node
 
-        doc = getattr(self.mod, "__doc__", None)
+        doc = getattr_safe(self.mod, "__doc__", None)
         if not doc:
             log_t(f"could not find __doc__ for {self.import_path}")
             return updated_node
@@ -611,11 +629,8 @@ def run(
         for import_path, file_path, file_relpath in queue_iter(queue):
             try:
                 mod = importlib.import_module(import_path)
-            except ModuleNotFoundError:
-                log_w(f"could not import {import_path}, module not found")
-                continue
             except Exception as e:
-                log_w(f"could not import {import_path}, {e}")
+                log_w(f"could not import {import_path}: {e}")
                 continue
 
             with open(file_path, "r", encoding="utf-8") as f:
