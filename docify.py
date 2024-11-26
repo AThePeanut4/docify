@@ -591,9 +591,9 @@ def run(
         include_root = (input_path / "__init__.py").exists()
         include_root = include_root or (input_path / "__init__.pyi").exists()
 
-        for base_dir, _, filenames in input_path.walk(follow_symlinks=True):
+        for base_dir, _, filenames in os.walk(input_path, followlinks=True):
             for filename in filenames:
-                file_path = base_dir / filename
+                file_path = Path(base_dir, filename)
                 file_relpath = file_path.relative_to(input_path)
 
                 if file_relpath.suffix != ".pyi":
