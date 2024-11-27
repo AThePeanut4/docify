@@ -680,7 +680,7 @@ def main(args: Sequence[str] | None = None):
         "-V",
         "--version",
         action="version",
-        version="%(prog)s 1.0.0",
+        version="%(prog)s 1.1.0",
     )
     arg_parser.add_argument(
         "-v",

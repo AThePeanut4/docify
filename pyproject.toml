@@ -1,6 +1,6 @@
 [project]
 name = "docify"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
     "libcst >= 1.1.0",
     "tqdm >= 4.66.4",
