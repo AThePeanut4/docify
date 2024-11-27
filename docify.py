@@ -645,21 +645,22 @@ def run(
             new_stub_cst = wrapper.visit(visitor)
 
             if in_place:
-                f = NamedTemporaryFile(
-                    dir=file_path / "..",
-                    prefix=f"{file_path.name}.",
-                    mode="w",
-                    delete=False,
-                    encoding="utf-8",
-                )
+                f = None
                 try:
-                    with f:
+                    with NamedTemporaryFile(
+                        dir=(file_path / "..").resolve(),
+                        prefix=f"{file_path.name}.",
+                        mode="w",
+                        delete=False,
+                        encoding="utf-8",
+                    ) as f:
                         f.write(new_stub_cst.code)
                 except:
-                    os.remove(f.name)
+                    if f:
+                        os.remove(f.name)
                     raise
 
-                shutil.copymode(file_path, f.name)
+                shutil.copystat(file_path, f.name)
                 os.replace(f.name, file_path)
             else:
                 output_path = Path(output_dir)
