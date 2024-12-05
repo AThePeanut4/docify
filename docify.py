@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
 import inspect
+import logging
 import os
 import shutil
 import sys
@@ -13,40 +15,21 @@ from argparse import ArgumentParser
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import Any, Callable, Literal, Sequence, cast
+from typing import Any, Literal, Sequence, cast
 
 import libcst as cst
 import libcst.matchers as m
 import libcst.metadata as meta
 
+tqdm = None
+
 IGNORE_MODULES = ("antigravity", "this")
 
-VERBOSITY = 0
+logger = logging.getLogger(__name__)
 
-logger: Callable[[str]] = print
+TRACE = 5
 
-
-def log_t(s):
-    if VERBOSITY > 2:
-        logger(f"TRACE: {s}")
-
-
-def log_v(s):
-    if VERBOSITY > 1:
-        logger(f"VERBOSE: {s}")
-
-
-def log_i(s):
-    if VERBOSITY > 0:
-        logger(f"INFO: {s}")
-
-
-def log_w(s):
-    logger(f"WARNING: {s}")
-
-
-def log_e(s):
-    logger(f"ERROR: {s}")
+logger_trace = functools.partial(logger.log, TRACE)
 
 
 _default_sentinel = object()
@@ -59,8 +42,8 @@ def getattr_safe(o: object, name: str, default=_default_sentinel) -> Any:
         if default is _default_sentinel:
             raise
         return default
-    except Exception as e:
-        log_w(f"getattr({o!r}, {name!r}) raised an exception: {e}")
+    except Exception:
+        logger.warning(f"getattr({o!r}, {name!r}) raised an exception", exc_info=True)
 
         if default is _default_sentinel:
             raise AttributeError
@@ -68,17 +51,7 @@ def getattr_safe(o: object, name: str, default=_default_sentinel) -> Any:
 
 
 def queue_iter(queue):
-    if VERBOSITY > 0 and sys.stdout.isatty():
-        try:
-            from tqdm import tqdm
-        except ModuleNotFoundError:
-            return queue
-
-        # a bit hacky, but eh
-        global logger
-        if logger == print:
-            logger = tqdm.write
-
+    if tqdm is not None:
         return tqdm(queue, dynamic_ncols=True)
     else:
         return queue
@@ -117,7 +90,7 @@ def get_doc_class(obj: object, qualname: str):
     # e.g. types.BuiltinFunctionType, aka builtin_function_or_method,
     # or typing._SpecialForm
     if inspect.isdatadescriptor(doc):
-        log_v(f"ignoring __doc__ descriptor for {qualname}")
+        logger.debug(f"ignoring __doc__ descriptor for {qualname}")
         return None
 
     return doc
@@ -131,10 +104,10 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         # ignore __init__ and __new__ if they are inherited from object
         if inspect.isclass(scope_obj) and scope_obj is not object:
             if name == "__init__" and doc == object.__init__.__doc__:
-                log_t(f"ignoring __doc__ for {qualname}")
+                logger_trace(f"ignoring __doc__ for {qualname}")
                 return None
             elif name == "__new__" and doc == object.__new__.__doc__:
-                log_t(f"ignoring __doc__ for {qualname}")
+                logger_trace(f"ignoring __doc__ for {qualname}")
                 return None
 
         return doc
@@ -145,7 +118,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
     if inspect.isdatadescriptor(raw_obj):
         doc = getattr_safe(raw_obj, "__doc__", None)
         if doc:
-            log_v(f"using __doc__ from descriptor for {qualname}")
+            logger.debug(f"using __doc__ from descriptor for {qualname}")
             return doc
 
     if not inspect.isclass(obj):
@@ -156,7 +129,7 @@ def get_doc_def(scope_obj: object, obj: object, qualname: str, name: str):
         if raw_doc is None or inspect.isdatadescriptor(raw_doc):
             doc = getattr_safe(obj, "__doc__", None)
             if doc:
-                log_v(f"using __doc__ from class instance {qualname}")
+                logger.debug(f"using __doc__ from class instance {qualname}")
                 return doc
 
     return None
@@ -356,7 +329,7 @@ class UnreachableProvider(meta.BatchableMetadataProvider[Literal[True]]):
 
         cond = self.get_metadata(ConditionProvider, node.test, None)
         if cond is None:
-            log_w(f"encountered unsupported condition:\n{node.test}")
+            logger.warning(f"encountered unsupported condition:\n{node.test}")
             return
 
         if cond:
@@ -435,12 +408,12 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            log_t(f"docstring for {qualname} already exists, skipping")
+            logger_trace(f"docstring for {qualname} already exists, skipping")
             return updated_node
 
         r = get_obj(self.mod, qualname)
         if r is None:
-            log_t(f"cannot find {qualname}")
+            logger_trace(f"cannot find {qualname}")
             return updated_node
 
         scope_obj, obj = r
@@ -457,13 +430,13 @@ class Transformer(cst.CSTTransformer):
 
         if doc is not None:
             if not isinstance(doc, str):
-                log_w(f"__doc__ for {qualname} is {type(doc)!r}, not str")
+                logger.warning(f"__doc__ for {qualname} is {type(doc)!r}, not str")
                 doc = None
             else:
                 doc = inspect.cleandoc(doc)
 
         if not doc:
-            log_t(f"could not find __doc__ for {qualname}")
+            logger_trace(f"could not find __doc__ for {qualname}")
             return updated_node
 
         indent = ""
@@ -481,7 +454,7 @@ class Transformer(cst.CSTTransformer):
                 n = self.get_metadata(meta.ParentNodeProvider, n, None)
 
         doc = docquote_str(doc, indent)
-        log_t(f"__doc__ for {qualname}:\n{doc}")
+        logger_trace(f"__doc__ for {qualname}:\n{doc}")
 
         docstring_node = cst.SimpleStatementLine([cst.Expr(cst.SimpleString(doc))])
 
@@ -515,7 +488,7 @@ class Transformer(cst.CSTTransformer):
                 ]
             ),
         ):
-            log_t(f"docstring for {self.import_path} already exists, skipping")
+            logger_trace(f"docstring for {self.import_path} already exists, skipping")
             return updated_node
 
         if not self.check_if_needed(self.mod):
@@ -523,12 +496,12 @@ class Transformer(cst.CSTTransformer):
 
         doc = getattr_safe(self.mod, "__doc__", None)
         if not doc:
-            log_t(f"could not find __doc__ for {self.import_path}")
+            logger_trace(f"could not find __doc__ for {self.import_path}")
             return updated_node
 
         doc = inspect.cleandoc(doc)
         doc = docquote_str(doc)
-        log_t(f"__doc__ for {self.import_path}:\n{doc}")
+        logger_trace(f"__doc__ for {self.import_path}:\n{doc}")
 
         node_body = updated_node.body
         if len(node_body) != 0:
@@ -624,8 +597,11 @@ def run(
         for import_path, file_path, file_relpath in queue_iter(queue):
             try:
                 mod = importlib.import_module(import_path)
-            except Exception as e:
-                log_w(f"could not import {import_path}: {e}")
+            except ImportError as e:
+                logger.warning(f"could not import {import_path}: {e}")
+                continue
+            except Exception:
+                logger.warning(f"could not import {import_path}", exc_info=True)
                 continue
 
             with open(file_path, "r", encoding="utf-8") as f:
@@ -633,11 +609,11 @@ def run(
 
             try:
                 stub_cst = cst.parse_module(stub_source)
-            except Exception as e:
-                log_e(f"could not parse {file_path}: {e}")
+            except Exception:
+                logger.exception(f"could not parse {file_path}")
                 continue
 
-            log_i(f"processing {file_path}")
+            logger.info(f"processing {file_path}")
 
             wrapper = cst.MetadataWrapper(stub_cst)
             visitor = Transformer(import_path, mod, if_needed)
@@ -730,8 +706,36 @@ def main(args: Sequence[str] | None = None):
 
     parsed_args = arg_parser.parse_args(args)
 
-    global VERBOSITY
-    VERBOSITY = 1 + parsed_args.verbose - parsed_args.quiet
+    logging.addLevelName(5, "TRACE")
+
+    verbosity = 2 + parsed_args.verbose - parsed_args.quiet
+    levels = [logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG, TRACE]
+    if verbosity < 0:
+        level = logging.ERROR
+    elif verbosity >= len(levels):
+        level = TRACE
+    else:
+        level = levels[verbosity]
+
+    stream = None
+    if level <= logging.INFO and sys.stderr.isatty():
+        try:
+            global tqdm
+            from tqdm import tqdm
+            from tqdm.contrib import DummyTqdmFile
+
+            stream = DummyTqdmFile(sys.stderr)
+        except Exception:
+            pass
+
+    handler = logging.StreamHandler(stream)
+    # only print docify messages
+    handler.addFilter(logging.Filter(__name__))
+    logging.basicConfig(
+        format="%(levelname)s: %(message)s",
+        level=level,
+        handlers=[handler],
+    )
 
     run_args = vars(parsed_args)
     del run_args["verbose"]
