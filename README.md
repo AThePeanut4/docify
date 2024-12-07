@@ -24,11 +24,21 @@ docify
 python -m docify
 ```
 
+Or from [conda-forge](https://anaconda.org/conda-forge/docify):
+
+```sh
+conda install conda-forge::docify
+
+docify
+# or
+python -m docify
+```
+
 Or just download and run the script directly:
 
 ```sh
 # Install dependencies
-pip install libcst tqdm  # tqdm is not needed if running with -q
+pip install libcst tqdm  # tqdm is optional, and is only used if not running with -q
 
 python docify.py
 # or
@@ -56,6 +66,6 @@ options:
   -b, --builtins-only   only add docstrings to modules found in `sys.builtin_module_names`
   --if-needed           only add a docstring if the object's source code cannot be found
   -i, --in-place        modify stubs in-place
-  -o OUTPUT_DIR, --output OUTPUT_DIR
+  -o, --output OUTPUT_DIR
                         directory to write modified stubs to
 ```
